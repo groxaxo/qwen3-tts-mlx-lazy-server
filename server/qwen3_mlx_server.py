@@ -1,8 +1,8 @@
 """Lazy resident server for Qwen3-TTS 12Hz MLX (Lucía voice clone).
 
 Holds the model warm so per-sentence latency drops from ~6.5s (cold process)
-to ~2-3s. Self-terminates after QWEN3_MLX_TTL_S seconds idle (default 900 =
-15 min) so it never lingers — also exits well before the idle-bigmem reaper's
+to ~2-3s. Self-terminates after QWEN3_MLX_TTL_S seconds idle (default 600 =
+10 min) so it never lingers — also exits well before the idle-bigmem reaper's
 30-min window. Started on demand by tts.sh's qwen3-mlx engine.
 
 Endpoints:
@@ -35,7 +35,7 @@ REF_AUDIO = os.environ.get(
     f"{HOME}/chatterbox-finetunino/latam_runs/profiles/lucia-latam-ar-recipe-ordered/reference.wav",
 )
 MAX_TOKENS = int(os.environ.get("QWEN3_MLX_MAX_TOKENS", "300"))
-TTL_S = int(os.environ.get("QWEN3_MLX_TTL_S", "900"))
+TTL_S = int(os.environ.get("QWEN3_MLX_TTL_S", "600"))
 PORT = int(os.environ.get("QWEN3_MLX_PORT", "18885"))
 
 sidecar = os.path.splitext(REF_AUDIO)[0] + ".reftext"

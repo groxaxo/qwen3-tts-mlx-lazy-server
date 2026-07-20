@@ -12,10 +12,10 @@
 : "${QWEN3_MLX_MEM_LIMIT_GB:=4}"
 : "${QWEN3_MLX_MAX_TOKENS:=300}"
 # Lazy resident server: first call spawns it (~10s), later calls are ~2-3s;
-# it exits by itself after QWEN3_MLX_TTL_S idle (default 15 min).
+# it exits by itself after QWEN3_MLX_TTL_S idle (default 10 min).
 : "${QWEN3_MLX_LAZY:=1}"
 : "${QWEN3_MLX_PORT:=18885}"
-: "${QWEN3_MLX_TTL_S:=900}"
+: "${QWEN3_MLX_TTL_S:=600}"
 : "${QWEN3_MLX_SERVER:=$HOME/.config/opencode/qwen3_mlx_server.py}"
 
 _qwen3_mlx_server_synth() {

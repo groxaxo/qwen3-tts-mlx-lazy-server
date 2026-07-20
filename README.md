@@ -39,7 +39,7 @@ mlx_audio's in-process Whisper transcription of the reference on every call.
 
 - `server/qwen3_mlx_server.py` — stdlib-only HTTP server on `:18885`
   (`GET /health`, `POST /synth {"text": …}` → `audio/wav`). Loads the model
-  once; exits by itself after `QWEN3_MLX_TTL_S` (default 900 s) idle.
+  once; exits by itself after `QWEN3_MLX_TTL_S` (default 600 s) idle.
 - `tts-engine/qwen3-mlx-engine.sh` — the `qwen3-mlx` engine block used in
   `tts.sh`: tries the server (spawning it on demand), falls back to a one-shot
   in-process generation with the same memory caps.
@@ -87,7 +87,7 @@ curl -X POST localhost:18885/synth -d '{"text":"Hola, probando."}' -o out.wav
 | `QWEN3_MLX_MEM_LIMIT_GB` | `4` | relaxed MLX memory limit (caps the spike) |
 | `QWEN3_MLX_MAX_TOKENS` | `300` | ≈24 s audio headroom per call |
 | `QWEN3_MLX_PORT` | `18885` | server port |
-| `QWEN3_MLX_TTL_S` | `900` | idle seconds before the server exits |
+| `QWEN3_MLX_TTL_S` | `600` | idle seconds before the server exits |
 | `QWEN3_MLX_LAZY` | `1` | engine: try/spawn the server before one-shot |
 
 ## Notes
