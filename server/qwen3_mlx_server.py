@@ -1,4 +1,4 @@
-"""Lazy resident server for Qwen3-TTS 12Hz MLX (Lucía voice clone).
+"""Lazy resident server for Qwen3-TTS 12Hz 1.7B MLX W8 voice cloning.
 
 Holds the model warm so per-sentence latency drops from ~6.5s (cold process)
 to ~2-3s. Self-terminates after QWEN3_MLX_TTL_S seconds idle (default 600 =
@@ -6,8 +6,8 @@ to ~2-3s. Self-terminates after QWEN3_MLX_TTL_S seconds idle (default 600 =
 30-min window. Started on demand by tts.sh's qwen3-mlx engine.
 
 Endpoints:
-  GET  /health          -> {"ok": true}
-  POST /synth {"text", "lang_code", "ref_audio"}  -> audio/wav bytes
+  GET  /health -> backend and live MLX memory counters
+  POST /synth {"text", "lang_code", "ref_audio", "seed"} -> audio/wav bytes
 """
 
 import json
@@ -20,8 +20,14 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import mlx.core as mx
 
-mx.set_cache_limit(0)
-mx.set_memory_limit(int(float(os.environ.get("QWEN3_MLX_MEM_LIMIT_GB", "4")) * 1024**3))
+MEMORY_LIMIT_BYTES = int(
+    float(os.environ.get("QWEN3_MLX_MEM_LIMIT_GB", "4")) * 1024**3
+)
+CACHE_LIMIT_BYTES = int(
+    float(os.environ.get("QWEN3_MLX_CACHE_LIMIT_MB", "512")) * 1024**2
+)
+mx.set_memory_limit(MEMORY_LIMIT_BYTES)
+mx.set_cache_limit(CACHE_LIMIT_BYTES)
 
 from mlx_audio.tts.generate import generate_audio
 from mlx_audio.tts.utils import load_model
@@ -74,7 +80,18 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == "/health":
-            self._json(200, {"ok": True})
+            self._json(
+                200,
+                {
+                    "ok": True,
+                    "backend": "qwen3-tts-1.7b-mlx-w8",
+                    "memory_limit_bytes": MEMORY_LIMIT_BYTES,
+                    "cache_limit_bytes": CACHE_LIMIT_BYTES,
+                    "active_memory_bytes": mx.get_active_memory(),
+                    "cache_memory_bytes": mx.get_cache_memory(),
+                    "peak_memory_bytes": mx.get_peak_memory(),
+                },
+            )
         else:
             self._json(404, {"error": "not found"})
 
@@ -89,6 +106,9 @@ class Handler(BaseHTTPRequestHandler):
             text = payload["text"]
             lang_code = payload["lang_code"]
             ref_audio = payload.get("ref_audio", REF_AUDIO)
+            seed = payload.get("seed")
+            if seed is not None:
+                seed = int(seed)
             if not isinstance(ref_audio, str):
                 raise ValueError("ref_audio must be a path string")
             ref_text = None
@@ -103,6 +123,9 @@ class Handler(BaseHTTPRequestHandler):
         LAST_USED = time.time()
         try:
             with LOCK, tempfile.TemporaryDirectory() as td:
+                if seed is not None:
+                    mx.random.seed(seed)
+                generation_start = time.perf_counter()
                 prefix = f"synth-{uuid.uuid4().hex[:8]}"
                 generate_audio(
                     text,
@@ -119,9 +142,14 @@ class Handler(BaseHTTPRequestHandler):
                 )
                 with open(os.path.join(td, f"{prefix}.wav"), "rb") as f:
                     wav = f.read()
+                generation_seconds = time.perf_counter() - generation_start
             self.send_response(200)
             self.send_header("Content-Type", "audio/wav")
             self.send_header("Content-Length", str(len(wav)))
+            self.send_header("X-Qwen-Generation-Seconds", f"{generation_seconds:.6f}")
+            self.send_header("X-MLX-Active-Memory-Bytes", str(mx.get_active_memory()))
+            self.send_header("X-MLX-Cache-Memory-Bytes", str(mx.get_cache_memory()))
+            self.send_header("X-MLX-Peak-Memory-Bytes", str(mx.get_peak_memory()))
             self.end_headers()
             self.wfile.write(wav)
         except Exception as e:

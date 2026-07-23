@@ -19,21 +19,32 @@ mlx_audio as-is. Three fixes, applied by `setup.sh`:
    the 1.7B checkpoint needs **2048** (shape error on `speaker_encoder.fc.weight`).
 2. **No `speech_tokenizer/`** (Mimi decoder) → grafted from
    `mlx-community/Qwen3-TTS-12Hz-1.7B-Base-bf16` (quantization-independent).
-3. **Memory spike**: generation ballooned to ~13 GB peak footprint from MLX
-   buffer-cache retention. `mx.set_cache_limit(0)` +
-   `mx.set_memory_limit(4 GB, relaxed)` → **6.2 GB peak, no speed or quality
-   loss** (ASR-verified).
+3. **Memory spike and disabled-cache slowdown**: generation originally reached
+   ~13 GB with MLX's default cache behavior. Disabling the cache controlled
+   memory, but a seeded comparison showed that a bounded **512 MiB Metal
+   cache** is about **9.7% faster** than zero cache. The same outputs were
+   byte-identical at 0, 512, and 1024 MiB.
 
 Also: a `.reftext` sidecar next to the reference wav feeds `ref_text` and skips
 mlx_audio's in-process Whisper transcription of the reference on every call.
 
-## Benchmarks (M-series, 24 GB)
+## Benchmarks (Apple M5, 24 GB)
 
-| Path | Latency | Peak footprint |
-|------|---------|----------------|
-| One-shot process, defaults | 10.9 s / 9.2 s audio | 13.7 GB |
-| One-shot, capped (this repo) | ~6.5 s per sentence | 6.2 GB |
-| Lazy server, warm | **~2–4 s per sentence** | 6.2 GB spike, 3.4 GB resident |
+RTF is generation time divided by output duration, so lower is faster.
+
+| Warm server setting | Median RTF | Effective speed | Result |
+|---|---:|---:|---|
+| Cache disabled | 0.664 | 1.51x realtime | baseline |
+| **512 MiB cache** | **0.600** | **1.67x realtime** | accepted |
+| 1024 MiB cache | 0.617 | 1.62x realtime | no further gain |
+
+The controlled comparison used the same three Spanish phrases and seeds. All
+three WAV files were byte-identical across settings. A separate five-phrase
+run with the accepted setting measured **0.604 median RTF** (1.66x realtime,
+0.581-0.651 range) and friendly WER 0 on all five clips through local Parakeet
+Spanish ASR. After that run, process RSS was 2.80 GiB, MLX active memory was
+2.97 GiB, and the retained Metal cache was 125 MiB. See
+[`benchmarks/apple-m5-2026-07-22.json`](benchmarks/apple-m5-2026-07-22.json).
 
 ## Layout
 
@@ -48,13 +59,23 @@ mlx_audio's in-process Whisper transcription of the reference on every call.
 
 ## Quick start
 
-To make this engine the default in the shared `tts.sh` dispatcher, set
-`TTS_ENGINE=qwen3-mlx`. For a bilingual Carina setup, create PCM WAV references
-and their matching `.reftext` transcripts, then configure:
+To make this exact checkpoint the default in the shared `talk.sh`/`tts.sh`
+dispatcher, set both the engine and model explicitly. This avoids a stale shell
+override silently selecting another local TTS engine:
 
 ```bash
+export TTS_ENGINE=qwen3-mlx
+export QWEN3_MLX_MODEL=~/mlx-models/qwen3-tts-12hz-1.7b-base-mlx-8bit
+export QWEN3_MLX_CACHE_LIMIT_MB=512
 export QWEN3_MLX_REF_AUDIO_ES=~/voices/qwen3-mlx-carina-es.wav
 export QWEN3_MLX_REF_AUDIO_EN=~/voices/qwen3-mlx-carina-en.wav
+```
+
+For a bilingual Carina setup, keep exact `.reftext` transcripts next to both
+PCM WAV references. Confirm the effective selection with:
+
+```bash
+~/.config/opencode/skills/talk/talk.sh status
 ```
 
 The engine selects the Spanish reference for `es*` calls and the English
@@ -85,6 +106,7 @@ curl -X POST localhost:18885/synth -d '{"text":"Hola, probando."}' -o out.wav
 | `QWEN3_MLX_MODEL` | `~/mlx-models/qwen3-tts-12hz-1.7b-base-mlx-8bit` | model dir |
 | `QWEN3_MLX_REF_AUDIO` | (Lucía reference) | voice to clone; `.reftext` sidecar skips Whisper |
 | `QWEN3_MLX_MEM_LIMIT_GB` | `4` | relaxed MLX memory limit (caps the spike) |
+| `QWEN3_MLX_CACHE_LIMIT_MB` | `512` | retained Metal free-buffer cache; measured speed/memory optimum |
 | `QWEN3_MLX_MAX_TOKENS` | `300` | ≈24 s audio headroom per call |
 | `QWEN3_MLX_PORT` | `18885` | server port |
 | `QWEN3_MLX_TTL_S` | `600` | idle seconds before the server exits |
@@ -95,4 +117,4 @@ curl -X POST localhost:18885/synth -d '{"text":"Hola, probando."}' -o out.wav
 - 4-bit: no public 4-bit exists for 1.7B **Base** (only CustomVoice/VoiceDesign
   and the 0.6B). 4-bit would not help anyway — the memory spike was cache, not
   weights — and 4-bit TTS quantization audibly garbles words.
-- The 15-min TTL also keeps the server clear of idle-process reapers.
+- The 10-min TTL also keeps the server clear of longer idle-process reapers.

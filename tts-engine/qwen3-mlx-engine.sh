@@ -5,11 +5,11 @@
 : "${QWEN3_MLX_REF_AUDIO_EN:=$HOME/voices/qwen3-mlx-carina-en.wav}"
 : "${QWEN3_MLX_REF_AUDIO_ES:=$HOME/voices/qwen3-mlx-carina-es.wav}"
 
-# Memory: MLX buffer-cache retention spikes generation to ~13GB footprint on
-# this model; cache_limit(0) + a relaxed memory_limit caps it at ~6GB with no
-# speed or quality loss (ASR-verified 2026-07-20). A .reftext sidecar next to
-# the ref audio skips the in-process Whisper transcription of the reference.
+# Memory: a bounded Metal free-buffer cache avoids the original ~13 GB default
+# footprint while being about 9.7% faster than disabling the cache. Seeded
+# outputs were byte-identical at 0/512/1024 MiB (verified 2026-07-22).
 : "${QWEN3_MLX_MEM_LIMIT_GB:=4}"
+: "${QWEN3_MLX_CACHE_LIMIT_MB:=512}"
 : "${QWEN3_MLX_MAX_TOKENS:=300}"
 # Lazy resident server: first call spawns it (~10s), later calls are ~2-3s;
 # it exits by itself after QWEN3_MLX_TTL_S idle (default 10 min).
@@ -28,7 +28,8 @@ _qwen3_mlx_server_synth() {
         [ -f "$QWEN3_MLX_SERVER" ] || return 1
         echo "[tts] Qwen3-TTS MLX spawning lazy server on :${QWEN3_MLX_PORT}…" >&2
         QWEN3_MLX_MODEL="$QWEN3_MLX_MODEL" QWEN3_MLX_REF_AUDIO="$QWEN3_MLX_REF_AUDIO" \
-        QWEN3_MLX_MEM_LIMIT_GB="$QWEN3_MLX_MEM_LIMIT_GB" QWEN3_MLX_MAX_TOKENS="$QWEN3_MLX_MAX_TOKENS" \
+        QWEN3_MLX_MEM_LIMIT_GB="$QWEN3_MLX_MEM_LIMIT_GB" QWEN3_MLX_CACHE_LIMIT_MB="$QWEN3_MLX_CACHE_LIMIT_MB" \
+        QWEN3_MLX_MAX_TOKENS="$QWEN3_MLX_MAX_TOKENS" \
         QWEN3_MLX_TTL_S="$QWEN3_MLX_TTL_S" QWEN3_MLX_PORT="$QWEN3_MLX_PORT" \
         nohup "$QWEN3_MLX_PYTHON" "$QWEN3_MLX_SERVER" >> "$HOME/Library/Logs/qwen3-mlx-server.log" 2>&1 &
         local i=0
@@ -63,7 +64,7 @@ _synth_qwen3_mlx() {
     output_dir=$(dirname "$out_wav")
     output_name=$(basename "$out_wav" .wav)
     [ -f "${QWEN3_MLX_REF_AUDIO%.*}.reftext" ] && ref_text=$(cat "${QWEN3_MLX_REF_AUDIO%.*}.reftext")
-    echo "[tts] Qwen3-TTS MLX lang=${lang} model=${QWEN3_MLX_MODEL} ref=$(basename "$QWEN3_MLX_REF_AUDIO") memcap=${QWEN3_MLX_MEM_LIMIT_GB}GB" >&2
+    echo "[tts] Qwen3-TTS MLX lang=${lang} model=${QWEN3_MLX_MODEL} ref=$(basename "$QWEN3_MLX_REF_AUDIO") memcap=${QWEN3_MLX_MEM_LIMIT_GB}GB cache=${QWEN3_MLX_CACHE_LIMIT_MB}MiB" >&2
 
     if [ "$QWEN3_MLX_LAZY" = "1" ] && _qwen3_mlx_server_synth "$text" "$lang" "$out_wav"; then
         fade_wav_edges "$out_wav"
@@ -76,12 +77,13 @@ _synth_qwen3_mlx() {
     QWEN3_REF_TEXT="$ref_text" QWEN3_MLX_MODEL="$QWEN3_MLX_MODEL" \
     QWEN3_MLX_REF_AUDIO="$QWEN3_MLX_REF_AUDIO" \
     QWEN3_MLX_MEM_LIMIT_GB="$QWEN3_MLX_MEM_LIMIT_GB" \
+    QWEN3_MLX_CACHE_LIMIT_MB="$QWEN3_MLX_CACHE_LIMIT_MB" \
     QWEN3_MLX_MAX_TOKENS="$QWEN3_MLX_MAX_TOKENS" \
     "$QWEN3_MLX_PYTHON" -c '
 import os
 import mlx.core as mx
-mx.set_cache_limit(0)
 mx.set_memory_limit(int(float(os.environ["QWEN3_MLX_MEM_LIMIT_GB"]) * 1024**3))
+mx.set_cache_limit(int(float(os.environ["QWEN3_MLX_CACHE_LIMIT_MB"]) * 1024**2))
 from mlx_audio.tts.generate import generate_audio
 ref_text = os.environ.get("QWEN3_REF_TEXT") or None
 ref_audio = os.environ.get("QWEN3_MLX_REF_AUDIO") or None

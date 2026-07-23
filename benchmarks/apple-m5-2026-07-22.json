@@ -1,0 +1,39 @@
+{
+  "date": "2026-07-22",
+  "hardware": "Apple M5, 24 GB unified memory",
+  "model": "Qwen3-TTS 12Hz 1.7B Base MLX W8",
+  "model_path": "~/mlx-models/qwen3-tts-12hz-1.7b-base-mlx-8bit",
+  "language": "es",
+  "reference_audio": "~/voices/qwen3-mlx-carina-es.wav",
+  "controlled_cache_comparison": {
+    "phrases": 3,
+    "seeded": true,
+    "cache_0_mib_median_rtf": 0.664388,
+    "cache_512_mib_median_rtf": 0.600154,
+    "cache_1024_mib_median_rtf": 0.616854,
+    "rtf_reduction_0_to_512": 0.09668,
+    "waveforms_identical_across_settings": true
+  },
+  "final_five_phrase_run": {
+    "seeded": true,
+    "median_http_seconds": 4.946421,
+    "median_audio_seconds": 8.08,
+    "median_rtf": 0.603687,
+    "mean_rtf": 0.6080166,
+    "rtf_range": [0.580764, 0.650841],
+    "realtime_multiplier": 1.656487551,
+    "friendly_wer_each": [0.0, 0.0, 0.0, 0.0, 0.0],
+    "friendly_wer_mean": 0.0
+  },
+  "resource_snapshot_after_run": {
+    "process_rss_bytes": 3003924480,
+    "mlx_active_memory_bytes": 3184051164,
+    "mlx_cache_memory_bytes": 130883316,
+    "mlx_cumulative_peak_memory_bytes": 6492829261
+  },
+  "notes": [
+    "RTF is HTTP response time divided by output WAV duration.",
+    "Friendly WER ignores case, punctuation, and accents.",
+    "The cumulative MLX peak is an allocator peak, not simultaneous process RSS."
+  ]
+}
